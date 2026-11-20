@@ -1,0 +1,6 @@
+,MAE,RMSE,MAE spikes (top 5%),MAE negative hours,MAE improvement vs naive (%)
+Average of the three models,18.18,27.76,50.13,18.12,45.34
+Linear regression,20.39,31.59,59.57,20.75,38.69
+Random forest,21.0,31.76,63.56,19.66,36.86
+Neural network (MLP),23.37,33.2,47.75,22.0,29.72
+Naive (same hour yesterday),33.25,51.57,68.97,41.43,0.0
