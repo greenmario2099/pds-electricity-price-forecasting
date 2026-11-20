@@ -1,7 +1,8 @@
-pandas>=2.0
+pandas>=2.2
 numpy
 matplotlib
 scikit-learn>=1.3
+scipy
 holidays
 jupyter
 gradio

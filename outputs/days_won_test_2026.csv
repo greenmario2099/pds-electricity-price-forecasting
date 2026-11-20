@@ -1,0 +1,5 @@
+,days won,days compared,% of days won,p-value (sign test)
+Naive (same hour yesterday),253,321,78.8,3.37652910821626e-26
+Linear regression,206,321,64.2,4.2848277342004045e-07
+Random forest,197,321,61.4,5.4661053203296665e-05
+Neural network (MLP),233,321,72.6,2.820948713455889e-16

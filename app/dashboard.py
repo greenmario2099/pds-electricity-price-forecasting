@@ -46,20 +46,31 @@ def show_day(day, models):
              f"(min {day_data['actual'].min():.1f}, max {day_data['actual'].max():.1f})"]
     for m in models:
         lines.append(f'MAE of {m}: {(day_data[m] - day_data["actual"]).abs().mean():.1f} EUR/MWh')
-    return fig, table, '\n'.join(lines)
+    return fig, '\n'.join(lines), table
 
 
-demo = gr.Interface(
+EXAMPLES = [['2026-03-03', ['Naive (same hour yesterday)', FINAL_MODEL]],   # normal workday
+            ['2026-05-10', ['Naive (same hour yesterday)', FINAL_MODEL]],   # Sunday with negative prices at midday
+            ['2026-11-09', MODELS]]                                        # extreme evening price spike
+
+interface_args = dict(
     fn=show_day,
     inputs=[gr.Dropdown(DAYS, value=DAYS[-1], label='Day (test period 2026)'),
             gr.CheckboxGroup(MODELS, value=['Naive (same hour yesterday)', FINAL_MODEL], label='Models')],
-    outputs=[gr.Plot(label='Forecast vs. actual'), gr.Dataframe(label='Hourly values'), gr.Textbox(label='Summary')],
+    outputs=[gr.Plot(label='Forecast vs. actual'), gr.Textbox(label='Summary'), gr.Dataframe(label='Hourly values')],
+    examples=EXAMPLES,
+    cache_examples=False,
     title='German Day-Ahead Electricity Price Forecast',
     description=f'Out-of-sample forecasts for 2026, models retrained every month. Final model: {FINAL_MODEL} '
                 f'(linear regression, random forest, neural network). Test MAE Jan-Nov 2026: '
                 f'{comparison.loc[FINAL_MODEL, "MAE"]:.2f} EUR/MWh (naive: '
-                f'{comparison.loc["Naive (same hour yesterday)", "MAE"]:.2f}).',
+                f'{comparison.loc["Naive (same hour yesterday)", "MAE"]:.2f}). '
+                'Examples below: a normal workday, a Sunday with negative prices and an extreme price spike.',
 )
+try:
+    demo = gr.Interface(**interface_args, flagging_mode='never')    # Gradio 5 and newer
+except TypeError:
+    demo = gr.Interface(**interface_args, allow_flagging='never')   # Gradio 4
 
 if __name__ == '__main__':
     demo.launch()

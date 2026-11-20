@@ -15,6 +15,7 @@
 \usepackage{enumitem}% http://ctan.org/pkg/enumitem
 \usepackage{amsmath}
 \usepackage{tabularx}  % added for wide tables with line breaks
+\usepackage{longtable} % added: the generative-AI table can break across pages
 \usepackage[section]{placeins} % added: keeps figures and tables inside their section
 
 \newboolean{englishLanguage}
@@ -195,7 +196,7 @@
 
 We forecast the hourly German day-ahead electricity price for the next day using only official data from SMARD, the electricity market data platform of the Bundesnetzagentur. All 27 features are past prices, calendar information or official day-ahead forecasts of load, wind and solar power, so no actual values of the forecast day are used. We compare two simple baselines (a seasonal naive forecast and a linear regression) with a random forest, a neural network and the simple average of the three learned models. Every model is retrained monthly on the previous two years, and the final model was selected on the validation year 2025 before the test data was used.
 
-On the test period January to November 2026, the final model, the equally weighted average of linear regression, random forest and neural network, reaches a mean absolute error (MAE) of 18.18\,EUR/MWh. This is 45.3\,\% lower than the seasonal naive forecast, and the final model is more accurate than the naive forecast on 79\,\% of the test days. Feature importance and a partial dependence plot show that the models learn the merit-order relationship between residual load and price. As an extension, a logistic regression detects 92.9\,\% of the negative-price hours of 2026 (PR-AUC 0.84). The main remaining weakness is the underestimation of extreme price spikes.
+On the test period January to November 2026, the final model, the equally weighted average of linear regression, random forest and neural network, reaches a mean absolute error (MAE) of 18.18\,EUR/MWh. This is 45.3\,\% lower than the seasonal naive forecast, and the final model wins significantly more test days than every other model (sign test, $p < 0.001$). The best single model changes from month to month, which makes the average the most robust choice. Without the official wind and solar forecasts, which are not guaranteed to be published before the auction, the MAE rises to 29.38\,EUR/MWh: these forecasts carry most of the predictive skill. Feature importance and a partial dependence plot show that the models learn the merit-order relationship between residual load and price. As an extension, a logistic regression detects 92.9\,\% of the negative-price hours of 2026 (PR-AUC 0.84). The main remaining weakness is the underestimation of extreme price spikes.
 
 \textbf{Keywords:} electricity price forecasting, day-ahead market, random forest, forecast averaging, merit order, negative prices
 
@@ -220,7 +221,7 @@ Forecasting these prices has become considerably harder in recent years. The sha
 
 \subsection{Problem statement}
 
-We predict the hourly day-ahead price (EUR/MWh) of the bidding zone Germany/Luxembourg for each hour of day $D$. The forecast is made at noon on day $D-1$, so it may only use information that is available at that time. This is a supervised regression problem on time-series data. Our main evaluation metric is the mean absolute error (MAE).
+We predict the hourly day-ahead price (EUR/MWh) of the bidding zone Germany/Luxembourg for each hour of day $D$. The forecast is made at noon on day $D-1$, so it may only use information that is available at that time (Section~\ref{sec:leakage} discusses one caveat). This is a supervised regression problem on time-series data. Our main evaluation metric is the mean absolute error (MAE).
 
 As an extension, we predict whether an hour will have a negative price. This binary classification problem is relevant for battery operators, flexible consumers and owners of renewable plants, for whom negative prices mean either a revenue opportunity or a cost.
 
@@ -238,6 +239,7 @@ As an extension, we predict whether an hour will have a negative price. This bin
 \begin{itemize}
     \item A reproducible data pipeline that turns four SMARD files into 27 features without using any actual values of the forecast day.
     \item A comparison of simple and more flexible models from the course (linear regression, random forest, neural network and their average) in a realistic setting with monthly retraining.
+    \item A robustness check that quantifies how much the forecasts depend on the official wind and solar forecasts.
     \item An analysis of feature importance and partial dependence that recovers the merit-order curve from data.
     \item A classifier for negative-price hours and a small dashboard to inspect the forecasts.
 \end{itemize}
@@ -246,7 +248,7 @@ The remainder of this report is structured as follows. Section~\ref{sec:related}
 
 \section{Related Work} \label{sec:related}
 
-\textbf{Electricity price forecasting.} \citet{weron2014} reviews the methods used for electricity price forecasting (EPF) over roughly 15 years, from statistical time-series models to neural networks, and discusses their strengths and weaknesses. He calls for comparative studies that use the same datasets, robust error measures and a careful check of whether one model really outperforms another. We follow these recommendations by using an official, public dataset, the MAE as main metric and a day-by-day comparison of the errors.
+\textbf{Electricity price forecasting.} \citet{weron2014} reviews the methods used for electricity price forecasting (EPF) over roughly 15 years, from statistical time-series models to neural networks, and discusses their strengths and weaknesses. He calls for comparative studies that use the same datasets, robust error measures and a careful check of whether one model really outperforms another. We follow these recommendations by using an official, public dataset, the MAE as main metric and a day-by-day comparison of the errors with a simple significance test.
 
 \textbf{Benchmarks and best practices.} \citet{lago2021} note that new EPF methods are often compared on datasets that are not public and on short test periods limited to one market, so it remains unclear which methods work best. They propose guidelines for EPF research, review state-of-the-art algorithms and publish an open-access benchmark with two open-source forecasting models. They recommend a test period of at least one year and comparisons against simple benchmarks. Our test period covers ten and a half months (January to mid-November 2026); together with the validation year 2025, every model is evaluated out-of-sample with monthly retraining on almost two years of data.
 
@@ -264,7 +266,7 @@ The remainder of this report is structured as follows. Section~\ref{sec:related}
 
 All data comes from SMARD, the electricity market data platform of the Bundesnetzagentur (Federal Network Agency) \citep{smard2026}. It is published under the CC BY 4.0 licence, which permits free use with attribution. We downloaded four files with the settings country Germany, resolution hour, period 01.10.2018 to 17.11.2026 (Table~\ref{tab:files}). Each file has 71,281 hourly rows. Nationwide public holidays were added with the Python package \texttt{holidays}, which contains the official German holiday dates.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{SMARD files used in this project}
     \begin{tabularx}{\textwidth}{lXl}
@@ -299,7 +301,7 @@ After building the lagged features (Section~\ref{sec:method}), the first 30 days
 
 \textbf{Price development.} Table~\ref{tab:yearly} and Figure~\ref{fig:daily} show strong changes over time. Prices were low and stable in 2019--2020, rose to an average of 235\,EUR/MWh in the energy crisis of 2022 and settled at a new, higher level afterwards. 2026 is more expensive (mean 121\,EUR/MWh) and more volatile than 2024--2025. Negative prices became much more frequent with the growth of renewables.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Day-ahead price statistics by year (EUR/MWh; 2018 and 2026 are partial years)}
     \begin{tabular}{lrrrrr}
@@ -320,7 +322,7 @@ After building the lagged features (Section~\ref{sec:method}), the first 30 days
     \label{tab:yearly}
 \end{table}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/fig_daily_price.pdf}
     \caption{Daily average day-ahead price (EUR/MWh) with major market events}
@@ -329,16 +331,16 @@ After building the lagged features (Section~\ref{sec:method}), the first 30 days
 
 \textbf{Seasonality.} Prices follow a strong daily profile with a morning and an evening peak (Figure~\ref{fig:profile}). With the growth of solar generation, the midday hours have become much cheaper relative to the rest of the day than in 2019, which creates a pronounced dip at noon. Prices are also lower on weekends and public holidays: on workdays in 2024--2026, the average price was about 105\,EUR/MWh on normal days and about 55\,EUR/MWh on public holidays.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.75\textwidth]{figures/fig_daily_profile.pdf}
+    \includegraphics[width=0.62\textwidth]{figures/fig_daily_profile.pdf}
     \caption{Average price by hour of the day for selected years}
     \label{fig:profile}
 \end{figure}
 
 \textbf{Price drivers.} The forecasted residual load is the strongest fundamental driver of the price, with a correlation of 0.73 in 2024--2026. Solar ($-0.45$) and wind ($-0.30$) forecasts lower the price, while total load alone is only weakly related (0.18). Figure~\ref{fig:merit} shows that the relationship between residual load and price is increasing and non-linear, and that the whole curve shifted upwards between 2019 and 2025 (higher fuel and CO$_2$ costs) and extends further to the left (more hours with very low residual load). When the forecasted renewable share exceeds 100\,\% of the load, 72\,\% of the hours have negative prices; between 80\,\% and 100\,\% it is 32\,\%.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/fig_merit_order.png}
     \caption{Price vs.\ forecasted residual load in 2019 and 2025 (4,000 sampled hours each)}
@@ -347,9 +349,9 @@ After building the lagged features (Section~\ref{sec:method}), the first 30 days
 
 \textbf{Generation mix.} The actual generation data (Figure~\ref{fig:mix}) shows the structural change behind these patterns. The renewable share of generation rose from 42.8\,\% in 2019 to 58.9\,\% in 2025, nuclear power disappeared in April 2023, and solar generation grew from 42\,TWh to 74\,TWh.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.9\textwidth]{figures/fig_generation_mix.pdf}
+    \includegraphics[width=0.72\textwidth]{figures/fig_generation_mix.pdf}
     \caption{Annual electricity generation in Germany by source (TWh)}
     \label{fig:mix}
 \end{figure}
@@ -364,13 +366,13 @@ After building the lagged features (Section~\ref{sec:method}), the first 30 days
 
 The auction for day $D$ closes at 12:00 on day $D-1$. A feature for an hour of day $D$ is therefore only allowed if it is known at that time. This rule excludes two variables that would otherwise look very useful: the prices of neighbouring countries, which are determined in the same auction, and actual generation, which is published only afterwards. Allowed are SMARD's day-ahead forecasts for day $D$, all prices up to and including day $D-1$ (which were set in the auction on day $D-2$) and calendar information.
 
-One caveat concerns the publication times of the forecasts. The transmission system operators must publish the day-ahead load forecast at least two hours before the auction closes, but the day-ahead wind and solar forecasts only by 18:00 on day $D-1$ \citep{eu2013transparency}. The wind and solar forecasts, and therefore the residual load, are thus not guaranteed to be available at noon. We use them as a proxy for the weather-based wind and solar forecasts that market participants prepare or buy themselves before the auction. Because such forecasts can be less accurate than the official ones, our errors may be slightly optimistic (Section~\ref{sec:limitations}).
+One caveat concerns the publication times of the forecasts. The transmission system operators must publish the day-ahead load forecast at least two hours before the auction closes, but the day-ahead wind and solar forecasts only by 18:00 on day $D-1$ \citep{eu2013transparency}. The wind and solar forecasts, and therefore the residual load, are thus not guaranteed to be available at noon. We use them as a proxy for the weather-based wind and solar forecasts that market participants prepare or buy themselves before the auction. If such forecasts are less accurate than the official ones, our errors are optimistic; Section~\ref{sec:robust} quantifies the worst case without any wind and solar information.
 
 \subsection{Features}
 
 We build 27 features in three groups (Table~\ref{tab:features}). Each is a short pandas operation in \texttt{src/\allowbreak data\_\allowbreak pipeline.py}. All rolling statistics are shifted by 24 hours so that they only use prices up to day $D-1$.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Model features}
     \begin{tabularx}{\textwidth}{lXX}
@@ -391,7 +393,7 @@ We build 27 features in three groups (Table~\ref{tab:features}). Each is a short
 
 Time series must not be split randomly, because the model would then learn from the future. We use three consecutive periods (Table~\ref{tab:split}). The training period starts after the energy crisis because the price dynamics of 2021--2022 no longer represent the current market; Section~\ref{sec:window} provides evidence for this choice.
 
-\begin{table}[htbp]
+\begin{table}[h!]
     \centering
     \caption{Chronological data split}
     \begin{tabular}{llrl}
@@ -434,7 +436,7 @@ In practice, a forecasting model is retrained regularly with the newest data. We
 
 We do not use percentage errors such as the MAPE, because prices close to or below zero make them meaningless.
 
-A lower average error can come from a few days on which one model was lucky. We therefore also compute each model's MAE for every single test day and count the share of days on which the final model is more accurate than each other model. If the final model wins on clearly more than half of the days, the improvement is not driven by a few outliers.
+A lower average error can come from a few days on which one model was lucky. We therefore also compute each model's MAE for every single test day and count the days on which the final model is more accurate than each other model. If two models were equally good, each would win about half of the days, like a coin flip. A sign test, i.e.\ a binomial test of the number of days won against 50\,\%, gives the probability of a result at least this extreme under that assumption; we call a difference significant if this p-value is below 0.05.
 
 \subsection{Extension: negative-price classification} \label{sec:classmethod}
 
@@ -446,7 +448,7 @@ The target is 1 if the price is below 0\,EUR/MWh and 0 otherwise. Only about 6\,
 
 Table~\ref{tab:valfixed} shows the models trained once on 2023--2024 and evaluated on 2025. All learned models roughly halve the error of the naive forecast. The random forest is best (MAE 13.53\,EUR/MWh), followed by the linear regression (14.55) and the MLP (15.09).
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Validation results 2025 with a fixed training period 2023--2024 (EUR/MWh)}
     \begin{tabular}{lrrrr}
@@ -471,7 +473,7 @@ With monthly retraining of the random forest on the validation year, a two-year 
 
 Table~\ref{tab:valroll} compares all models with monthly retraining on the validation year. The average of the three models has the lowest MAE (12.43\,EUR/MWh), the lowest RMSE and the lowest error on price spikes, and was therefore selected as the final model \emph{before} the test set was used.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Validation results 2025 with monthly retraining and a two-year window (EUR/MWh)}
     \begin{tabular}{lrrrr}
@@ -492,7 +494,7 @@ Table~\ref{tab:valroll} compares all models with monthly retraining on the valid
 
 Table~\ref{tab:test} reports all models on the test year with the same procedure. The pre-selected average remains the best model with an MAE of 18.18\,EUR/MWh, an improvement of 45.3\,\% over the naive forecast. It also has the lowest RMSE and the lowest error in negative-price hours. The MLP alone has the lowest error on price spikes (47.75\,EUR/MWh), which shows that the three models make different errors and complement each other.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Test results January to 17 November 2026, monthly retraining (EUR/MWh)}
     \small
@@ -512,29 +514,52 @@ Table~\ref{tab:test} reports all models on the test year with the same procedure
 
 Two observations stand out. First, all errors are higher in 2026 than in 2025, because prices are higher and more volatile (standard deviation 76.3 vs.\ 52.1\,EUR/MWh). Second, the ranking of the single models changes: on the test set the linear regression beats the random forest, while it was the weakest learned model in 2025. Section~\ref{sec:ranking} discusses the reason.
 
-\textbf{Day-by-day comparison.} Table~\ref{tab:wins} shows on how many of the 321 test days the final model had a lower daily MAE than each other model. It beats the naive forecast on 79\,\% of the days and each single model on 61--73\,\% of the days. The improvement therefore holds on most days of the year and is not caused by a few outliers.
+\textbf{Day-by-day comparison.} Table~\ref{tab:wins} shows on how many of the 321 test days the final model had a lower daily MAE than each other model. It beats the naive forecast on 79\,\% of the days and each single model on 61--73\,\% of the days. All differences are significant: the largest p-value of the sign test is 0.00005, against the random forest. The improvement therefore holds on most days of the year and is not caused by a few outliers.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
-    \caption{Share of the 321 test days on which the final model has a lower daily MAE}
-    \begin{tabular}{lr}
+    \caption{Test days (out of 321) on which the final model has a lower daily MAE, with the p-value of the sign test}
+    \begin{tabular}{lrrr}
         \toprule
-        Final model compared with & Days won \\
+        Final model compared with & Days won & Share & p-value \\
         \midrule
-        Naive (same hour yesterday) & 78.8\,\% \\
-        Neural network (MLP) & 72.6\,\% \\
-        Linear regression & 64.2\,\% \\
-        Random forest & 61.4\,\% \\
+        Naive (same hour yesterday) & 253 & 78.8\,\% & $3 \times 10^{-26}$ \\
+        Neural network (MLP) & 233 & 72.6\,\% & $3 \times 10^{-16}$ \\
+        Linear regression & 206 & 64.2\,\% & $4 \times 10^{-7}$ \\
+        Random forest & 197 & 61.4\,\% & $5 \times 10^{-5}$ \\
         \bottomrule
     \end{tabular}
     \label{tab:wins}
+\end{table}
+
+\subsection{Robustness: without the official wind and solar forecasts} \label{sec:robust}
+
+Because the official wind and solar forecasts are not guaranteed to be available at noon (Section~\ref{sec:leakage}), we repeated the test evaluation without every feature that uses them: the wind, solar and residual-load forecasts, the renewable share and the residual-load statistics. The remaining 17 features are the load forecast, which is published before the auction, the calendar and the past prices. This is a worst case: a forecaster without any information about tomorrow's wind and sun. The check is a sensitivity analysis only and was not used to choose a model.
+
+Table~\ref{tab:robust} shows that the MAE of the final model rises from 18.18 to 29.38\,EUR/MWh (+62\,\%). It is still 11.6\,\% better than the naive forecast, while the MLP alone falls behind it. The wind and solar forecasts therefore carry most of the models' skill: they tell the model how tomorrow will differ from today. A forecaster in practice uses own weather-based wind and solar forecasts, which are available before the auction, so the realistic accuracy lies between the two columns, close to the first if these forecasts are about as accurate as the official ones.
+
+\begin{table}[!htbp]
+    \centering
+    \caption{Test MAE 2026 with all features and without any feature based on the official wind and solar forecasts (EUR/MWh)}
+    \begin{tabular}{lrr}
+        \toprule
+        Model & All 27 features & Without wind/solar (17 features) \\
+        \midrule
+        Average of the three models & \textbf{18.18} & \textbf{29.38} \\
+        Linear regression & 20.39 & 30.30 \\
+        Random forest & 21.00 & 30.09 \\
+        Neural network (MLP) & 23.37 & 39.57 \\
+        Naive (same hour yesterday) & 33.25 & 33.25 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:robust}
 \end{table}
 
 \subsection{Negative-price classification}
 
 Table~\ref{tab:class} shows the results for detecting negative-price hours, which make up 6.5\,\% of the hours in 2025 and 6.0\,\% in 2026. The logistic regression achieved the highest PR-AUC on the validation year (0.863, random forest 0.834, rule 0.755) and was selected. On the test year it again performs best, with a PR-AUC of 0.843, a recall of 92.9\,\% and a precision of 61.9\,\%. The random forest does not improve on it, but both learned models clearly beat the renewable-share rule (Figure~\ref{fig:pr}). Of the 462 negative hours in 2026, the logistic regression detected 429 and missed 33, while raising 264 false alarms.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Negative-price classification, test results 2026 (thresholds chosen on 2025)}
     \begin{tabular}{lrrrrr}
@@ -549,9 +574,9 @@ Table~\ref{tab:class} shows the results for detecting negative-price hours, whic
     \label{tab:class}
 \end{table}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.65\textwidth]{figures/fig_pr_curves.pdf}
+    \includegraphics[width=0.5\textwidth]{figures/fig_pr_curves.pdf}
     \caption{Precision-recall curves of the negative-price classifiers on the test year 2026}
     \label{fig:pr}
 \end{figure}
@@ -560,15 +585,24 @@ Table~\ref{tab:class} shows the results for detecting negative-price hours, whic
 
 \subsection{Why does the model ranking change in 2026?} \label{sec:ranking}
 
-On the validation year the random forest was better than the linear regression; on the test year it was the other way round. The main reason is the higher price level in 2026. Tree models can only predict values within the range of target values seen during training, because each leaf predicts an average of training observations. When prices rise above this range, as in many hours of 2026, the trees cannot follow. A linear model, in contrast, can extrapolate along the price-level features such as \texttt{lag24} and \texttt{prev\_day\_mean}, so it handles the shift better.
+On the validation year the random forest was clearly better than the linear regression (12.97 vs.\ 14.55\,EUR/MWh); on the test year the linear regression was slightly better (20.39 vs.\ 21.00). Figure~\ref{fig:monthly} shows that the ranking is not stable even within 2026: the random forest is the best single model in five months (January, February, April, June and November), the linear regression in five others (March, May, July, August and October) and the MLP in September.
 
-The average combines these properties. The random forest captures the non-linear merit order, the linear regression follows shifts in the price level, and the MLP reacts strongly to extreme situations. Averaging reduces the risk of relying on a single model whose strengths depend on the year. This is in line with \citet{nowotarski2014}, who find that equal-weight averaging works well when no single model is consistently best, and it explains why the average was the best model in both the validation and the test year. For RQ2 we conclude that monthly retraining on two years of data combined with a simple average of different models is the most robust strategy in a changing market.
+Part of the explanation is the rise of the price level in autumn 2026. The monthly mean price was between 79 and 127\,EUR/MWh from January to August, but climbed to 145\,EUR/MWh in September, 169 in October and 245 in 1--17 November. From September on, the 30-day mean price was higher than at any time in the two-year training window in 43\,\% (September), 98\,\% (October) and 94\,\% (November) of the hours. Tree models cannot extrapolate: each leaf predicts an average of training observations, so their forecasts stay within the range of situations seen before. A linear model can extrapolate along price-level features such as \texttt{lag24} and \texttt{prev\_day\_mean}. Accordingly, the gap between the two is largest in October (26.2 vs.\ 31.0\,EUR/MWh).
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=\textwidth]{figures/fig_monthly_mae.pdf}
+    \caption{MAE by month on the test year 2026; in the shaded months the price level was above the range of the training window}
+    \label{fig:monthly}
+\end{figure}
+
+The average combines these properties. The random forest captures the non-linear merit order, the linear regression follows shifts in the price level, and the MLP reacts strongly to extreme situations. The average is the best model in 8 of the 11 test months and at most 2.6\,EUR/MWh behind the best single model in the other three. This is exactly the situation in which \citet{nowotarski2014} find equal-weight averaging to be a simple but powerful choice: no individual model consistently outperforms the others. For RQ2 we conclude that monthly retraining on two years of data, combined with a simple average of different models, is the most robust strategy in a changing market.
 
 \subsection{Error analysis}
 
-\textbf{Bias towards the average.} Table~\ref{tab:bins} groups the test errors of the final model by the actual price, and Figure~\ref{fig:errors} shows the error by hour and price range. The model overestimates low and negative prices and underestimates high prices; for prices above 300\,EUR/MWh the mean error is 77\,EUR/MWh. This regression towards the mean is typical when models minimize average errors and extreme hours are rare in the training data. The error is lowest at night (about 13\,EUR/MWh) and largest in the evening hours 19:00--20:00 (about 25\,EUR/MWh), when the price reacts most strongly to the residual load.
+\textbf{Bias towards the average.} Table~\ref{tab:bins} groups the test errors of the final model by the actual price, and Figure~\ref{fig:errors} shows the error by hour of the day. The model overestimates low and negative prices and underestimates high prices; for prices above 300\,EUR/MWh the mean error is 77\,EUR/MWh. This regression towards the mean is typical when models minimize average errors and extreme hours are rare in the training data. The error is lowest at night (about 13\,EUR/MWh) and largest in the evening hours 19:00--20:00 (about 25\,EUR/MWh), when the price reacts most strongly to the residual load.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Errors of the final model by actual price range, test 2026 (error = actual $-$ forecast, EUR/MWh; each range includes its upper bound)}
     \begin{tabular}{lrrr}
@@ -587,16 +621,16 @@ The average combines these properties. The random forest captures the non-linear
     \label{tab:bins}
 \end{table}
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=\textwidth]{figures/fig_error_analysis.pdf}
-    \caption{MAE of the final model by hour of the day (left) and by actual price range (right), test 2026}
+    \includegraphics[width=0.7\textwidth]{figures/fig_error_analysis.pdf}
+    \caption{MAE of the final model by hour of the day, test 2026}
     \label{fig:errors}
 \end{figure}
 
 \textbf{Example weeks.} Figure~\ref{fig:weeks} shows two weeks of the test period. In May 2026 the model follows the daily shape well, including the midday price drops caused by solar power. On the weekend of 9--10 May it predicted clearly negative prices (down to about $-39$\,EUR/MWh), while the actual price stopped at about $-2$\,EUR/MWh. In November 2026, the model reacted to a period with little wind and sun (\enquote{Dunkelflaute}) but underestimated the evening spike on 9 November: the actual price reached 644\,EUR/MWh at 17:00, while the forecast was 381\,EUR/MWh. The naive forecast reproduces every spike one day too late.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
     \includegraphics[width=\textwidth]{figures/fig_test_weeks.pdf}
     \caption{Forecast of the final model, naive forecast and actual price in two test weeks}
@@ -609,18 +643,18 @@ The average combines these properties. The random forest captures the non-linear
 
 Figure~\ref{fig:importance} shows the feature importance of the random forest trained on the latest two years of data. It measures how much each feature reduces the error inside the trees. The forecasted residual load is the most important feature, followed by the renewable share and yesterday's price at the same hour (\texttt{lag24}); together these three account for more than 60\,\% of the total importance. The price-level features (\texttt{same\_hour\_mean\_7d}, \texttt{mean\_30d}, \texttt{prev\_day\_mean}) come next, because they tell the model how expensive the market currently is. Calendar features matter little once the residual load is known, since the residual load already contains the daily and weekly demand pattern. This importance measure favours features with many different values, so it is a rough guide rather than an exact ranking. The coefficients of the linear regression (notebook 02) point in the same direction: \texttt{lag24}, the change of the residual load compared with the previous day and the previous day's mean price have the largest positive effects, the renewable share a negative one.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.75\textwidth]{figures/fig_feature_importance.pdf}
+    \includegraphics[width=0.62\textwidth]{figures/fig_feature_importance.pdf}
     \caption{Feature importance of the random forest (15 most important features, trained on November 2024 to November 2026)}
     \label{fig:importance}
 \end{figure}
 
 The partial dependence plot \citep{friedman2001} of the residual load (Figure~\ref{fig:pdp}) shows how the forecast changes when only the residual load is varied. The curve has the step shape of the merit order. Below about 20\,GWh the forecast falls steeply, because renewables push conventional plants out of the market and prices can become negative. Between 20 and 40\,GWh the curve is flatter, as lignite and hard coal plants set the price. Above about 45\,GWh it rises faster again, because expensive gas plants are needed. The model has learned this economic relationship from data alone, which answers RQ3 and increases the trust in its forecasts. A linear regression would describe the same relationship with a straight line.
 
-\begin{figure}[htbp]
+\begin{figure}[!htbp]
     \centering
-    \includegraphics[width=0.7\textwidth]{figures/fig_partial_dependence.pdf}
+    \includegraphics[width=0.6\textwidth]{figures/fig_partial_dependence.pdf}
     \caption{Partial dependence of the random-forest price forecast on the forecasted residual load (2,000 sampled hours of 2026): the learned merit-order curve}
     \label{fig:pdp}
 \end{figure}
@@ -638,7 +672,7 @@ The classification errors are economically small. False alarms have a median pri
     \item \textbf{Extreme prices.} The models are biased towards the average and underestimate spikes.
     \item \textbf{No systematic tuning.} The random forest and the MLP use common, fixed settings. Tuning them with time-series cross-validation might improve the single models, although the averaging already reduces the dependence on any one model.
     \item \textbf{Resolution.} We forecast hourly averages, while the market has traded 15-minute products since October 2025.
-    \item \textbf{Publication time of the renewable forecasts.} The official wind and solar forecasts may be published after the auction closes (Section~\ref{sec:leakage}). A forecaster in practice would rely on own weather-based forecasts, which could make the errors somewhat larger.
+    \item \textbf{Publication time of the renewable forecasts.} The official wind and solar forecasts may be published after the auction closes (Section~\ref{sec:leakage}). Without any wind and solar information, the MAE of the final model rises to 29.38\,EUR/MWh (Section~\ref{sec:robust}); a forecaster with own weather-based forecasts would lie between this worst case and our main result.
     \item \textbf{Single market and period.} The results apply to Germany/Luxembourg and a test period of less than one year; they may differ for other markets or years.
 \end{itemize}
 
@@ -647,27 +681,40 @@ The classification errors are economically small. False alarms have a median pri
 We built an end-to-end machine learning system that forecasts hourly German day-ahead electricity prices from official SMARD data, using only day-ahead forecasts, past prices and calendar information, and only models from the course.
 
 \begin{itemize}
-    \item \textbf{RQ1 (accuracy):} All learned models clearly beat the seasonal naive forecast. The final model, the simple average of linear regression, random forest and neural network, reaches a test MAE of 18.18\,EUR/MWh in 2026, 45.3\,\% below the naive forecast. It is more accurate than the naive forecast on 79\,\% of the test days.
-    \item \textbf{RQ2 (changing market):} Monthly retraining on a two-year window works better than one or three years. No single model type is best in every year; a plain average of different models is the most robust choice when the price level shifts.
+    \item \textbf{RQ1 (accuracy):} All learned models clearly beat the seasonal naive forecast. The final model, the simple average of linear regression, random forest and neural network, reaches a test MAE of 18.18\,EUR/MWh in 2026, 45.3\,\% below the naive forecast, and wins significantly more test days than every other model. Without any wind and solar information it would reach 29.38\,EUR/MWh, so the renewable forecasts are the most valuable input.
+    \item \textbf{RQ2 (changing market):} Monthly retraining on a two-year window works better than one or three years. The best single model changes from month to month; the plain average of different models is the best model in 8 of 11 test months and the most robust choice when the price level shifts.
     \item \textbf{RQ3 (drivers):} The forecasted residual load, the renewable share and yesterday's prices are the most important features. A partial dependence plot shows that the random forest learns the step-shaped merit-order curve from data.
     \item \textbf{RQ4 (negative prices):} A logistic regression detects 92.9\,\% of the negative-price hours in 2026 (PR-AUC 0.84). Most remaining errors occur at prices close to zero, where wrong decisions are cheap.
 \end{itemize}
 
 The main weakness is the underestimation of extreme price spikes, partly because fuel and CO$_2$ prices are not part of the data. Promising next steps are hyperparameter tuning with time-series cross-validation, forecasts of price ranges instead of single values, forecasting at the 15-minute resolution of the current market, and using the predicted probabilities of negative prices in a simple battery charging strategy to measure the economic value of the forecasts.
 
-As a prototype, we implemented a Gradio dashboard (\texttt{app/dashboard.py}). Users pick any day of the test period and compare the out-of-sample forecasts of all models with the actual prices.
+As a prototype, we implemented a Gradio dashboard (\texttt{app/dashboard.py}, Figure~\ref{fig:dashboard}). Users pick any day of the test period and compare the out-of-sample forecasts of all models with the actual prices; three examples (a normal workday, a Sunday with negative prices and the spike of 9 November) are one click away.
+
+\begin{figure}[!htbp]
+    \centering
+    \includegraphics[width=0.85\textwidth]{figures/fig_dashboard.png}
+    \caption{The Gradio dashboard showing 9 November 2026: actual price, naive forecast and final model}
+    \label{fig:dashboard}
+\end{figure}
 
 \section{Use of Generative AI} \label{sec:genai}
 
 As required, we document where generative AI was used and with which prompts. We used Claude (Anthropic) for the parts listed in Table~\ref{tab:genai}. % TODO group: check this table against what was actually done and add any further use.
 
-\begin{table}[htbp]
-    \centering
-    \caption{Use of generative AI}
-    \begin{tabularx}{\textwidth}{lXX}
-        \toprule
-        Part of the work & How AI was used & Main prompts (summarized) \\
-        \midrule
+{\small
+\begin{longtable}{@{}>{\raggedright\arraybackslash}p{0.19\textwidth}>{\raggedright\arraybackslash}p{0.39\textwidth}>{\raggedright\arraybackslash}p{0.36\textwidth}@{}}
+    \caption{Use of generative AI}\label{tab:genai}\\
+    \toprule
+    Part of the work & How AI was used & Main prompts (summarized) \\
+    \midrule
+    \endfirsthead
+    \toprule
+    Part of the work & How AI was used & Main prompts (summarized) \\
+    \midrule
+    \endhead
+    \bottomrule
+    \endlastfoot
         Topic selection & Suggested and compared possible topics based on the course requirements and the SMARD data & \enquote{With all the things you have please look at the data and tell us the most suitable topic for us}; \enquote{give me headlines for the topic proposals} \\
         \midrule
         Data download & Helped choose the SMARD download settings & \enquote{what is the choice for the period?} \\
@@ -676,19 +723,21 @@ As required, we document where generative AI was used and with which prompts. We
         \midrule
         Code & Wrote the data pipeline, the three notebooks, the figure script and the dashboard in the style of the course notebooks; ran and checked them & \enquote{could you do a quick demo project using the way teacher codes in their lectures}; \enquote{why not just try the full version}; \enquote{do that, also make the code and report submittable} \\
         \midrule
-        Simplification & Tested simpler versions, replaced the first version's gradient boosting, hyperparameter search, significance tests and SHAP analysis with models and tools from the course, and re-ran all results & \enquote{I feel like this is way too advanced, we need something a bit simpler and easier to understand}; \enquote{do what you think is best, it shouldn't be worse just simpler} \\
+        Simplification & Tested simpler versions, replaced the first version's gradient boosting (LightGBM), hyperparameter search, Diebold--Mariano tests and SHAP analysis with models and tools from the course, and re-ran all results & \enquote{I feel like this is way too advanced, we need something a bit simpler and easier to understand}; \enquote{do what you think is best, it shouldn't be worse just simpler} \\
         \midrule
         Report & Drafted this report from the notebook results and checked the references & \enquote{could you also write report for this code} \\
-        \bottomrule
-    \end{tabularx}
-    \label{tab:genai}
-\end{table}
+        \midrule
+        Review and improvements & Checked all numbers against the notebook outputs and corrected errors (e.g.\ the publication time of the wind and solar forecasts, an inaccurate explanation of the model ranking); added the sign test, the monthly analysis and the robustness check; made the notebooks run in Google Colab and improved the dashboard & \enquote{Please look over again for fixes that needed, any mistakes that were not seen and things that can improve our grade and make our life easier}; \enquote{please look again this whole work, and just make it better} \\
+        \midrule
+        Presentation and team material & Created the slide deck with speaker notes, a project overview for the group (Word) and a private GitHub repository & \enquote{do the slide}; \enquote{also make a word file where I can show it to my teammates, so that they would understand it}; \enquote{I just want to connect my github to here and then you do everything else} \\
+\end{longtable}
+}
 
 All numbers in this report come from running the submitted code. The group reviewed the code, the results and the interpretations. [To be completed by the group: what each member checked or changed.]
 
 \section{Contributions of Group Members} \label{sec:contrib}
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Contributions of the group members}
     \begin{tabularx}{\textwidth}{lX}
@@ -725,7 +774,7 @@ All numbers in this report come from running the submitted code. The group revie
 
 The complete code is included in the submitted ZIP file (folder \texttt{code/}); its \texttt{README.md} explains installation and execution.
 
-\begin{table}[htbp]
+\begin{table}[!htbp]
     \centering
     \caption{Structure of the submitted code}
     \begin{tabularx}{\textwidth}{lX}

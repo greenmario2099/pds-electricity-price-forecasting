@@ -1,0 +1,6 @@
+,MAE with all features,MAE without wind/solar forecasts
+Linear regression,20.39,30.3
+Random forest,21.0,30.09
+Neural network (MLP),23.37,39.57
+Average of the three models,18.18,29.38
+Naive (same hour yesterday),33.25,33.25

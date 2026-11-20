@@ -98,21 +98,30 @@ axes[0].legend(ncol=3, fontsize=8, frameon=False)
 save(fig, 'fig_test_weeks.pdf')
 
 err = (preds['actual'] - preds[final]).abs()
-fig, axes = plt.subplots(1, 2, figsize=(10, 3.6))
-err.groupby(preds.index.hour).mean().plot(kind='bar', ax=axes[0], color='tab:blue')
-axes[0].set_xlabel('Hour of the day')
-axes[0].set_ylabel('MAE (EUR/MWh)')
-bins = pd.cut(preds['actual'], bins=[-600, 0, 50, 100, 150, 200, 300, 1000],
-              labels=['≤0', '0-50', '50-100', '100-150', '150-200', '200-300', '>300'])
-err.groupby(bins).mean().plot(kind='bar', ax=axes[1], color='tab:blue')
-axes[1].set_xlabel('Actual price range (EUR/MWh)')
-plt.setp(axes[0].get_xticklabels(), rotation=0, fontsize=7)
-plt.setp(axes[1].get_xticklabels(), rotation=0)
+fig, ax = plt.subplots(figsize=(7, 3.2))
+err.groupby(preds.index.hour).mean().plot(kind='bar', ax=ax, color='tab:blue')
+ax.set_xlabel('Hour of the day')
+ax.set_ylabel('MAE (EUR/MWh)')
+plt.setp(ax.get_xticklabels(), rotation=0, fontsize=8)
 save(fig, 'fig_error_analysis.pdf')
+
+monthly = pd.read_csv(ROOT / 'outputs' / 'monthly_mae_test_2026.csv', index_col=0)
+fig, ax = plt.subplots(figsize=(10, 3.6))
+ax.axvspan(8.5, 11.5, color='0.92', zorder=0)
+ax.text(10, monthly['Linear regression'].min() * 0.55, 'price level above\ntraining range', ha='center', fontsize=8, color='0.35')
+for col, style in [('Linear regression', dict(color='tab:blue', ls='-')), ('Random forest', dict(color='tab:green', ls='-')),
+                   ('Neural network (MLP)', dict(color='tab:grey', ls='-')), (final, dict(color='tab:red', lw=2.5))]:
+    ax.plot(monthly.index, monthly[col], marker='o', ms=4, label=col, **style)
+ax.set_xticks(range(1, 12))
+ax.set_xticklabels(['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'])
+ax.set_ylabel('MAE (EUR/MWh)')
+ax.set_ylim(0, None)
+ax.legend(ncol=4, fontsize=8, frameon=False, loc='upper left')
+save(fig, 'fig_monthly_mae.pdf')
 
 # --- Feature importance and partial dependence of the random forest (same model as in notebook 02) ---
 from sklearn.ensemble import RandomForestRegressor  # noqa: E402
-from sklearn.inspection import PartialDependenceDisplay  # noqa: E402
+from sklearn.inspection import partial_dependence  # noqa: E402
 
 importance = pd.read_csv(ROOT / 'outputs' / 'feature_importance_rf.csv', index_col=0).iloc[:, 0]
 fig, ax = plt.subplots(figsize=(7, 4.8))
@@ -124,10 +133,11 @@ latest_train = features.loc['2024-11-18':'2026-11-17']
 latest_rf = RandomForestRegressor(n_estimators=200, min_samples_leaf=5, max_features=0.5, n_jobs=-1, random_state=1)
 latest_rf.fit(latest_train[FEATURES], latest_train['price'])
 sample = features.loc['2026', FEATURES].sample(2000, random_state=1)
+pdp = partial_dependence(latest_rf, sample, ['residual_load_fc'], grid_resolution=100)
+grid = pdp['grid_values'][0] if 'grid_values' in pdp else pdp['values'][0]   # key name differs between scikit-learn versions
 fig, ax = plt.subplots(figsize=(7, 4))
-PartialDependenceDisplay.from_estimator(latest_rf, sample, ['residual_load_fc'], ax=ax)
-ax = fig.axes[-1]
-ax.set_xlabel('Forecasted residual load (MWh)')
+ax.plot(grid / 1000, pdp['average'][0], color='tab:blue', lw=2)
+ax.set_xlabel('Forecasted residual load (GWh)')
 ax.set_ylabel('Average price forecast (EUR/MWh)')
 save(fig, 'fig_partial_dependence.pdf')
 
