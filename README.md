@@ -37,6 +37,7 @@ app/dashboard.py          Gradio dashboard: compare the test forecasts with the 
 report/                   LaTeX source of the report in the chair's template (main.tex, literatur.bib, figures/)
 requirements.txt
 Report_Forecasting_German_Day-Ahead_Electricity_Prices.pdf   final report
+Report_Forecasting_German_Day-Ahead_Electricity_Prices_Revised.pdf   same report with revised wording (source: report/main_revised.tex)
 docs/                     overview of the project for the team (Word)
 ```
 
